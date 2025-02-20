@@ -1,7 +1,12 @@
 package com.competitivearmylists.scrapingservice.model;
 
-import java.time.LocalDate;
+import lombok.Getter;
+import lombok.Setter;
 
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
 public class CompetitorEventResultDto {
     private String firstName;
     private String lastName;
@@ -9,7 +14,7 @@ public class CompetitorEventResultDto {
     private String result;
     private String list;
     private String eventName;
-    private LocalDate date;
+    private LocalDateTime date;
 
     // Getters & Setters or use Lombok
 }
