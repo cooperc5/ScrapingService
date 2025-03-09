@@ -21,7 +21,7 @@ public class ScraperController {
     @PostMapping
     public String scrapeUrl(@RequestParam String url) {
         try {
-            CompetitorEventResultDto dto = scraper.scrapeData(url);
+            CompetitorEventResultDto dto = scraper.scrapeData();
             restTemplate.postForObject(STORAGE_URL, dto, CompetitorEventResultDto.class);
             return "Successfully scraped: " + url;
         } catch (Exception e) {

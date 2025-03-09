@@ -1,7 +1,7 @@
 package com.competitivearmylists.scrapingservice.jobs;
 
 import com.competitivearmylists.scrapingservice.service.Scraper;
-import com.competitivearmylists.scrapingservice.service.CompetitorEventResultDto;
+import com.competitivearmylists.scrapingservice.model.CompetitorEventResultDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
