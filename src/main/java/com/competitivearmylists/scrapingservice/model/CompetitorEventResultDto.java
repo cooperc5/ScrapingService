@@ -15,6 +15,4 @@ public class CompetitorEventResultDto {
     private String list;
     private String eventName;
     private LocalDateTime date;
-
-    // Getters & Setters or use Lombok
 }

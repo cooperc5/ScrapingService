@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scrapingservice
+  labels:
+    app: scrapingservice
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: scrapingservice
+  template:
+    metadata:
+      labels:
+        app: scrapingservice
+    spec:
+      containers:
+        - name: scrapingservice
+          image: myregistry/scrapingservice:latest   # Image built with JDK 21
+          ports:
+            - containerPort: 8080
+          env:
+            # Update JAVA_HOME to Corretto 21 path (if explicitly needed by the app)
+            - name: JAVA_HOME
+              value: "/usr/lib/jvm/java-21-amazon-corretto"
+            # Update any custom Java version indicators (if used)
+            - name: JAVA_VERSION
+              value: "21"
+            # (Ensure any JVM flags are compatible with JDK 21. Most flags from 17 work in 21.)
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=75.0"   # example JVM option (unchanged)
+          resources:
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+          # Other container settings (livenessProbe, readinessProbe, etc.) remain unchanged
+      # Any ConfigMaps or Secrets mounted for Java configuration should be reviewed for Java 21 compliance (none in this example).

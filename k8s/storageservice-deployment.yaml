@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storageservice
+  labels:
+    app: storageservice
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: storageservice
+  template:
+    metadata:
+      labels:
+        app: storageservice
+    spec:
+      containers:
+        - name: storageservice
+          image: myregistry/storageservice:latest   # Built on JDK 21 base
+          ports:
+            - containerPort: 8080
+          env:
+            - name: JAVA_HOME
+              value: "/usr/lib/jvm/java-21-amazon-corretto"
+            - name: JAVA_VERSION
+              value: "21"
+            # (No Java 17 specific flags were present; existing JVM options remain unchanged)
+          resources:
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+          # Other container configurations unchanged

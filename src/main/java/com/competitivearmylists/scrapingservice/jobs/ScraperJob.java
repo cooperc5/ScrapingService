@@ -1,32 +1,58 @@
 package com.competitivearmylists.scrapingservice.jobs;
 
-import com.competitivearmylists.scrapingservice.model.CompetitorEventResultDto;
 import com.competitivearmylists.scrapingservice.service.Scraper;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.competitivearmylists.scrapingservice.service.CompetitorEventResultDto;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.ResponseEntity;
 
+import java.util.List;
+
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class ScraperJob {
 
-    @Autowired
-    private Scraper scraper;
+    private final Scraper scraper;
+    private final RestTemplate restTemplate = new RestTemplate();
 
-    @Autowired
-    private RestTemplate restTemplate;
+    // Base URL for the StorageService (injected from configuration)
+    @Value("${storage.service.url}")
+    private String storageServiceBaseUrl;
 
-    private static final String STORAGE_URL = "http://localhost:8080/api/results";
-
-    // Runs daily at 6:00 AM
-    @Scheduled(cron = "0 0 6 * * ?")
-    public void scrapeScheduled() {
+    /**
+     * Scheduled job that triggers the scraping and pushes data to StorageService.
+     * Runs at a fixed interval defined in application properties (default to 1 hour if not set).
+     */
+    @Scheduled(fixedRateString = "${scraper.job.interval:3600000}")
+    public void runScheduledScrape() {
+        log.info("ScraperJob triggered - starting scraping process...");
         try {
-            CompetitorEventResultDto dto = scraper.scrapeData("https://example.com");
-            // Post to storage-service
-            restTemplate.postForObject(STORAGE_URL, dto, CompetitorEventResultDto.class);
+            List<CompetitorEventResultDto> scrapedResults = scraper.scrapeData();
+            if (scrapedResults.isEmpty()) {
+                log.warn("No results scraped in this run.");
+            } else {
+                // Send each result to the StorageService
+                for (CompetitorEventResultDto result : scrapedResults) {
+                    String endpoint = storageServiceBaseUrl + "/api/v1/cer";
+                    ResponseEntity<Void> response = restTemplate.postForEntity(endpoint, result, Void.class);
+                    if (response.getStatusCode().is2xxSuccessful()) {
+                        log.debug("Posted result for {} {} to StorageService successfully.",
+                                result.getFirstName(), result.getLastName());
+                    } else {
+                        log.error("Failed to post result {} {} to StorageService. HTTP status: {}",
+                                result.getFirstName(), result.getLastName(), response.getStatusCode());
+                    }
+                }
+                log.info("ScraperJob: Pushed {} new results to StorageService.", scrapedResults.size());
+            }
         } catch (Exception e) {
-            e.printStackTrace();
+            // Catch any exception to prevent scheduler from suppressing it silently
+            log.error("ScraperJob encountered an error: {}", e.getMessage(), e);
         }
     }
 }
