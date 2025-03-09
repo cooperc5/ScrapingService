@@ -1,5 +1,6 @@
 package com.competitivearmylists.scrapingservice.service;
 
+import com.competitivearmylists.scrapingservice.model.CompetitorEventResultDto;
 import com.competitivearmylists.scrapingservice.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,7 +12,6 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
-
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,8 +23,7 @@ public class Scraper {
 
     private final AuthService authService;
     private final RestTemplate restTemplate = new RestTemplate();
-
-    // The URL or endpoint to scrape. Could also be injected via @Value.
+    // The URL or endpoint to scrape (could be injected via @Value in a config file)
     private final String targetUrl = "https://example.com/competition/results";
 
     /**
@@ -34,7 +33,8 @@ public class Scraper {
     public List<CompetitorEventResultDto> scrapeData() {
         log.info("Starting scrape for data from {}", targetUrl);
         String token = authService.getAccessToken();
-        // Prepare the request with authentication (e.g., Bearer token or cookie as needed)
+
+        // Prepare the request with authentication (Bearer token)
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(token);
         HttpEntity<String> requestEntity = new HttpEntity<>(headers);
@@ -48,21 +48,23 @@ public class Scraper {
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     htmlContent = response.getBody();
                     log.debug("Successfully fetched data on attempt {}/{}", attempt, maxRetries);
-                    break;  // exit loop on success
+                    break; // exit loop on success
                 } else {
                     log.warn("Attempt {}/{}: Received non-OK HTTP status {} from target",
                             attempt, maxRetries, response.getStatusCode());
                 }
             } catch (HttpClientErrorException.Unauthorized e) {
-                // If unauthorized, maybe the token expired – refresh token and retry
-                log.warn("Received 401 Unauthorized on attempt {} – will refresh token and retry", attempt);
-                authService.getAccessToken();  // this will refresh inside AuthService
-                headers.setBearerAuth(authService.getAccessToken()); // update header with new token
+                // If unauthorized, maybe the token expired or is invalid – refresh token and retry
+                log.warn("Attempt {}/{}: Received 401 Unauthorized – refreshing token and retrying", attempt, maxRetries);
+                authService.invalidateToken();  // force token refresh on next call
+                String newToken = authService.getAccessToken();
+                headers.setBearerAuth(newToken); // update header with new token
+                // continue to next loop iteration (retry with new token)
             } catch (Exception e) {
                 log.error("Attempt {}/{}: Exception during HTTP fetch: {}", attempt, maxRetries, e.getMessage());
                 if (attempt == maxRetries) {
                     // Give up after max retries
-                    throw e;
+                    throw e;  // propagate exception after final attempt
                 }
                 try {
                     Thread.sleep(2000); // wait 2 seconds before retrying
@@ -74,7 +76,7 @@ public class Scraper {
 
         if (htmlContent == null) {
             log.error("Failed to retrieve data from {} after {} attempts", targetUrl, maxRetries);
-            return List.of(); // return empty list or throw exception
+            return List.of(); // return empty list on failure
         }
 
         // Parse the HTML content using Jsoup
@@ -90,8 +92,9 @@ public class Scraper {
     protected List<CompetitorEventResultDto> parseHtml(String htmlContent) {
         List<CompetitorEventResultDto> results = new ArrayList<>();
         Document doc = Jsoup.parse(htmlContent);
-        // Example parsing logic: assume the page has a table with results
-        Element table = doc.selectFirst("table.results");  // selecting a table by class or id
+
+        // Example parsing logic: assume the page has a table with class "results"
+        Element table = doc.selectFirst("table.results");
         if (table == null) {
             log.warn("No results table found in the HTML content.");
             return results;
@@ -108,13 +111,12 @@ public class Scraper {
             try {
                 // Extract fields in order (adjust indices based on actual HTML structure)
                 String firstName = cells.get(0).text();
-                String lastName  = cells.get(1).text();
-                String list      = cells.get(2).text();
+                String lastName = cells.get(1).text();
+                String list = cells.get(2).text();
                 String eventName = cells.get(3).text();
-                String dateStr   = cells.get(4).text();
-                String result    = cells.get(5).text();
-                LocalDate eventDate = LocalDate.parse(dateStr);  // assuming date is in ISO format, else use a formatter
-
+                String dateStr = cells.get(4).text();
+                String result = cells.get(5).text();
+                LocalDate eventDate = LocalDate.parse(dateStr); // assuming ISO date format
                 CompetitorEventResultDto dto = new CompetitorEventResultDto(
                         firstName, lastName, list, eventName, eventDate, result);
                 results.add(dto);

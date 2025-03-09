@@ -5,10 +5,10 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import lombok.extern.slf4j.Slf4j;
-
 import java.time.Instant;
 import java.util.HashMap;
-import java.util.Map;
+// Added import for Jackson annotation
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 @Slf4j
 @Service
@@ -24,7 +24,7 @@ public class AuthService {
     private String clientSecret;
 
     private String accessToken;
-    private Instant tokenExpiry;  // timestamp when the token expires
+    private Instant tokenExpiry; // timestamp when the token expires
 
     /**
      * Returns a valid access token, refreshing it if necessary.
@@ -35,6 +35,14 @@ public class AuthService {
             refreshToken();
         }
         return accessToken;
+    }
+
+    /**
+     * Force the next call to fetch a new token (e.g., after an unauthorized response).
+     */
+    public synchronized void invalidateToken() {
+        this.accessToken = null;
+        this.tokenExpiry = null;
     }
 
     /**
@@ -50,15 +58,15 @@ public class AuthService {
      */
     private void refreshToken() {
         try {
-            // Prepare request body and headers for authentication (assuming form URL encoded request)
+            // Prepare request body and headers for authentication (form URL encoded)
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             Map<String, String> formData = new HashMap<>();
             formData.put("grant_type", "client_credentials");
             formData.put("client_id", clientId);
             formData.put("client_secret", clientSecret);
-
             HttpEntity<Map<String, String>> entity = new HttpEntity<>(formData, headers);
+
             ResponseEntity<TokenResponse> response = restTemplate.postForEntity(authUrl, entity, TokenResponse.class);
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 TokenResponse tokenResponse = response.getBody();
@@ -73,7 +81,7 @@ public class AuthService {
             }
         } catch (Exception e) {
             log.error("Error during token refresh: {}", e.getMessage(), e);
-            // Propagate exception to indicate auth failure (could be a custom exception in a real app)
+            // Propagate exception to indicate auth failure
             throw new RuntimeException("Authentication failed", e);
         }
     }
@@ -82,13 +90,14 @@ public class AuthService {
      * Simple DTO for parsing auth server responses.
      */
     static class TokenResponse {
-        private String access_token;
-        private long expires_in;
-        // Getters and setters (or use Lombok @Data for brevity)
-
-        public String getAccessToken() { return access_token; }
-        public long getExpiresIn() { return expires_in; }
-        public void setAccessToken(String token) { this.access_token = token; }
-        public void setExpiresIn(long expires) { this.expires_in = expires; }
+        // Use Jackson annotations to map JSON fields to Java fields
+        @JsonProperty("access_token")
+        private String accessToken;
+        @JsonProperty("expires_in")
+        private long expiresIn;
+        public String getAccessToken() { return accessToken; }
+        public long getExpiresIn() { return expiresIn; }
+        public void setAccessToken(String token) { this.accessToken = token; }
+        public void setExpiresIn(long expires) { this.expiresIn = expires; }
     }
 }

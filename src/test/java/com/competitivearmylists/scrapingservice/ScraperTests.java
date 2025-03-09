@@ -2,7 +2,7 @@ package com.competitivearmylists.scrapingservice;
 
 import com.competitivearmylists.scrapingservice.service.AuthService;
 import com.competitivearmylists.scrapingservice.service.Scraper;
-import com.competitivearmylists.scrapingservice.service.CompetitorEventResultDto;
+import com.competitivearmylists.scrapingservice.model.CompetitorEventResultDto;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
