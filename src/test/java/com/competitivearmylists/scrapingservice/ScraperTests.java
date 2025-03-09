@@ -5,6 +5,7 @@ import com.competitivearmylists.scrapingservice.service.Scraper;
 import com.competitivearmylists.scrapingservice.model.CompetitorEventResultDto;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
+import org.junit.Before;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
