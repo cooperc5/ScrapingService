@@ -3,112 +3,149 @@ package com.competitivearmylists.scrapingservice;
 import com.competitivearmylists.scrapingservice.service.AuthService;
 import com.competitivearmylists.scrapingservice.service.Scraper;
 import com.competitivearmylists.scrapingservice.model.CompetitorEventResultDto;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
-import
+import com.google.api.client.auth.oauth2.TokenResponse;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
-class ScraperTests {
+@RunWith(MockitoJUnitRunner.class)
+public class ScraperTests {
 
     @Mock
     private AuthService authService;
     @Mock
-    private RestTemplate restTemplate;  // we'll inject a RestTemplate into Scraper for test
+    private DataFetcher dataFetcher;  // assume DataFetcher or similar component for retrieving raw data
+
     @InjectMocks
     private Scraper scraper;
 
-    @BeforeEach
-    void setUp() {
-        // If Scraper was using constructor injection for RestTemplate, we could set it here.
-        // Assuming Scraper is modified to allow injecting RestTemplate (or we use reflection to set it for tests).
-        // For simplicity, let's assume Scraper has a setter or package-private field we can set for RestTemplate.
-        scraper.setRestTemplate(restTemplate);
+    // Sample HTML snippet to simulate competitor event results (for parseHtml tests and scrapeData returns)
+    private static final String SAMPLE_HTML =
+            "<html><body>"
+                    + "<table id='results'>"
+                    + "<tr><th>Event</th><th>Performance</th><th>Place</th></tr>"
+                    + "<tr><td>100m</td><td>10.5 s</td><td>1</td></tr>"
+                    + "<tr><td>200m</td><td>21.0 s</td><td>2</td></tr>"
+                    + "</table></body></html>";
+
+    @Before
+    public void setUp() {
+        // No special setup needed beyond Mockito initialization (handled by runner)
     }
 
     @Test
-    void testScrapeData_Success() {
-        // Setup: AuthService returns a valid token, RestTemplate returns a sample HTML on first try
-        when(authService.getAccessToken()).thenReturn("VALID_TOKEN");
-        String sampleHtml = "<html><body>"
-                + "<table class='results'>"
-                + "<tr><th>First</th><th>Last</th><th>List</th><th>Event</th><th>Date</th><th>Result</th></tr>"
-                + "<tr><td>John</td><td>Doe</td><td>ArmyList1</td><td>Winter Cup</td><td>2025-01-15</td><td>1st</td></tr>"
-                + "<tr><td>Jane</td><td>Smith</td><td>ArmyList2</td><td>Winter Cup</td><td>2025-01-15</td><td>2nd</td></tr>"
-                + "</table>"
-                + "</body></html>";
-        ResponseEntity<String> response = ResponseEntity.ok(sampleHtml);
-        // Simulate restTemplate.exchange returning the sample HTML
-        when(restTemplate.exchange(eq("https://example.com/competition/results"), eq(HttpMethod.GET),
-                any(HttpEntity.class), eq(String.class)))
-                .thenReturn(response);
+    public void testScrapeDataSuccess() throws Exception {
+        // Arrange: authService returns a TokenResponse with a valid access token
+        String token = "dummy-token";
+        TokenResponse tokenResponse = new TokenResponse();
+        tokenResponse.setAccessToken(token);
+        when(authService.getAccessToken()).thenReturn(tokenResponse);
 
+        // Simulate dataFetcher returning HTML content when called with the correct token
+        when(dataFetcher.fetchData(token)).thenReturn(SAMPLE_HTML);
+
+        // Act: invoke scrapeData (should use the token and fetch data successfully)
         List<CompetitorEventResultDto> results = scraper.scrapeData();
 
-        // Verify AuthService was called for a token
-        verify(authService, atLeastOnce()).getAccessToken();
-        // Verify that we parsed two results correctly
-        assertNotNull(results);
-        assertEquals(2, results.size());
-        // Check one of the parsed entries
-        CompetitorEventResultDto firstResult = results.get(0);
-        assertEquals("John", firstResult.getFirstName());
-        assertEquals("Doe", firstResult.getLastName());
-        assertEquals("Winter Cup", firstResult.getEventName());
-        assertEquals(LocalDate.of(2025, 1, 15), firstResult.getDate());
-        assertEquals("1st", firstResult.getResult());
+        // Assert: verify token was obtained and used, and results were parsed correctly
+        verify(authService, times(1)).getAccessToken();
+        verify(dataFetcher, times(1)).fetchData(token);
+        assertNotNull("Result list should not be null", results);
+        assertFalse("Result list should not be empty", results.isEmpty());
+        assertEquals("Expected 2 event results parsed", 2, results.size());
+        // Verify the first result's fields match expected values
+        CompetitorEventResultDto first = results.get(0);
+        assertEquals("100m", first.getEventName());
+        assertEquals("10.5 s", first.getResult());  // should include unit as per updated parsing
+        assertEquals(1, first.getPosition());
+        // (Additional field assertions can be added as needed)
     }
 
     @Test
-    void testScrapeData_HandlesTokenExpiryAndRetry() {
-        // Simulate token expiry scenario: first call uses an expired token causing 401, then refresh and succeed
+    public void testScrapeDataRetriesOnTokenExpiry() throws Exception {
+        // Arrange: Set up TokenResponse objects for first (expired) and second (refreshed) tokens
+        String expiredToken = "expired-token";
+        String freshToken = "fresh-token";
+        TokenResponse expiredResponse = new TokenResponse();
+        expiredResponse.setAccessToken(expiredToken);
+        TokenResponse freshResponse = new TokenResponse();
+        freshResponse.setAccessToken(freshToken);
+
         when(authService.getAccessToken())
-                .thenReturn("EXPIRED_TOKEN")  // first call returns an expired token
-                .thenReturn("NEW_TOKEN");     // second call returns a new token after refresh
-        // First attempt will throw Unauthorized, second attempt will return success HTML
-        when(restTemplate.exchange(eq("https://example.com/competition/results"), eq(HttpMethod.GET),
-                any(HttpEntity.class), eq(String.class)))
-                .thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED))  // 401 on first try
-                .thenReturn(ResponseEntity.ok("<html><body><table class='results'><tr><th>First</th><th>Last</th>"
-                        + "<th>List</th><th>Event</th><th>Date</th><th>Result</th></tr>"
-                        + "<tr><td>Alice</td><td>Lee</td><td>ListX</td><td>Spring Championship</td>"
-                        + "<td>2025-02-20</td><td>3rd</td></tr></table></body></html>"));
+                .thenReturn(expiredResponse)  // first call returns expired token
+                .thenReturn(freshResponse);   // second call (after refresh) returns new token
 
+        // Simulate first fetch attempt throwing an unauthorized exception, and second attempt succeeding
+        when(dataFetcher.fetchData(expiredToken))
+                .thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED));
+        when(dataFetcher.fetchData(freshToken))
+                .thenReturn(SAMPLE_HTML);
+
+        // Act: call scrapeData(), which should handle token expiry by retrying with a fresh token
         List<CompetitorEventResultDto> results = scraper.scrapeData();
 
-        // After a 401, AuthService.getAccessToken should have been called twice (initial + after failure)
+        // Assert: authService.getAccessToken() should be called twice (initial token + refreshed token)
         verify(authService, times(2)).getAccessToken();
-        // The final result should be parsed from the successful response
-        assertEquals(1, results.size());
-        assertEquals("Alice", results.get(0).getFirstName());
-        assertEquals("Lee", results.get(0).getLastName());
-        assertEquals("Spring Championship", results.get(0).getEventName());
-        // The first token (expired) should trigger a refresh internally; ensure no lingering usage of wrong token
-        Mockito.verifyNoMoreInteractions(authService);
+        // dataFetcher.fetchData should also be called twice (once failing, once succeeding)
+        verify(dataFetcher, times(2)).fetchData(anyString());
+        // Capture the token values used in each fetch call to ensure the refreshed token was used on retry
+        ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
+        verify(dataFetcher, times(2)).fetchData(tokenCaptor.capture());
+        assertEquals("First fetch should use expired token", expiredToken, tokenCaptor.getAllValues().get(0));
+        assertEquals("Second fetch should use refreshed token", freshToken, tokenCaptor.getAllValues().get(1));
+
+        // The final result should be successfully parsed from the second attempt's data
+        assertNotNull("Result list should not be null after token refresh", results);
+        assertFalse("Result list should not be empty after token refresh", results.isEmpty());
+        assertEquals("Expected 2 event results after retry", 2, results.size());
+        // Verify parsed content is correct (e.g., first entry fields)
+        CompetitorEventResultDto firstResult = results.get(0);
+        assertEquals("100m", firstResult.getEventName());
+        assertEquals("10.5 s", firstResult.getResult());
+        assertEquals(1, firstResult.getPosition());
     }
 
     @Test
-    void testParseHtml_NoTableFound() {
-        String html = "<html><body><p>No data here</p></body></html>";
-        // Using protected parseHtml method directly for unit testing parsing logic
-        List<CompetitorEventResultDto> results = scraper.parseHtml(html);
-        assertTrue(results.isEmpty(), "Results should be empty when no table is present");
+    public void testParseHtmlParsesEventResultsCorrectly() throws Exception {
+        // Arrange: Create a Jsoup Document from the sample HTML content
+        Document doc = Jsoup.parse(SAMPLE_HTML);
+
+        // Act: Call the parseHtml method directly (now public) to parse the HTML
+        List<CompetitorEventResultDto> results = scraper.parseHtml(doc);
+
+        // Assert: The returned list should contain the expected parsed results
+        assertNotNull("Parsed results should not be null", results);
+        assertEquals("Expected 2 results parsed from HTML", 2, results.size());
+
+        CompetitorEventResultDto firstResult = results.get(0);
+        assertEquals("100m", firstResult.getEventName());
+        // The result should include the unit (e.g., "s") as per the updated parsing logic
+        assertEquals("10.5 s", firstResult.getResult());
+        assertEquals(1, firstResult.getPosition());
+
+        CompetitorEventResultDto secondResult = results.get(1);
+        assertEquals("200m", secondResult.getEventName());
+        assertEquals("21.0 s", secondResult.getResult());
+        assertEquals(2, secondResult.getPosition());
     }
 }

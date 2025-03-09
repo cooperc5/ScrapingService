@@ -12,7 +12,7 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -89,7 +89,7 @@ public class Scraper {
      * Parses the HTML content to extract competitor event results.
      * This method is separated for easier testing of parsing logic.
      */
-    protected List<CompetitorEventResultDto> parseHtml(String htmlContent) {
+    public List<CompetitorEventResultDto> parseHtml(String htmlContent) {
         List<CompetitorEventResultDto> results = new ArrayList<>();
         Document doc = Jsoup.parse(htmlContent);
 
@@ -116,7 +116,7 @@ public class Scraper {
                 String eventName = cells.get(3).text();
                 String dateStr = cells.get(4).text();
                 String result = cells.get(5).text();
-                LocalDate eventDate = LocalDate.parse(dateStr); // assuming ISO date format
+                LocalDateTime eventDate = LocalDateTime.parse(dateStr); // assuming ISO date format
                 CompetitorEventResultDto dto = new CompetitorEventResultDto(
                         firstName, lastName, list, eventName, eventDate, result);
                 results.add(dto);
