@@ -1,30 +1,27 @@
 package com.competitivearmylists.scrapingservice;
 
+import com.competitivearmylists.scrapingservice.model.CompetitorEventResultDto;
+import com.competitivearmylists.scrapingservice.model.TokenResponse;
 import com.competitivearmylists.scrapingservice.service.AuthService;
 import com.competitivearmylists.scrapingservice.service.Scraper;
-import com.competitivearmylists.scrapingservice.model.CompetitorEventResultDto;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.junit.Before;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.MockitoJUnitRunner;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
-import java.time.LocalDateTime;
 import java.util.List;
-
-import com.google.api.client.auth.oauth2.TokenResponse;
 
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.*;
@@ -35,12 +32,11 @@ public class ScraperTests {
     @Mock
     private AuthService authService;
     @Mock
-    private DataFetcher dataFetcher;  // assume DataFetcher or similar component for retrieving raw data
-
+    private RestTemplate restTemplate;
     @InjectMocks
     private Scraper scraper;
 
-    // Sample HTML snippet to simulate competitor event results (for parseHtml tests and scrapeData returns)
+    // Sample HTML snippet to simulate competitor event results
     private static final String SAMPLE_HTML =
             "<html><body>"
                     + "<table id='results'>"
@@ -51,75 +47,79 @@ public class ScraperTests {
 
     @Before
     public void setUp() {
-        // No special setup needed beyond Mockito initialization (handled by runner)
+        // No special setup needed beyond Mockito initialization
     }
 
     @Test
     public void testScrapeDataSuccess() throws Exception {
-        // Arrange: authService returns a TokenResponse with a valid access token
+        // Arrange: AuthService returns a TokenResponse with a valid token
         String token = "dummy-token";
         TokenResponse tokenResponse = new TokenResponse();
         tokenResponse.setAccessToken(token);
         when(authService.getAccessToken()).thenReturn(tokenResponse);
+        // Simulate successful HTTP fetch of the HTML content
+        ResponseEntity<String> htmlResponse = new ResponseEntity<>(SAMPLE_HTML, HttpStatus.OK);
+        when(restTemplate.exchange(eq("https://example.com/competition/results"), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class)))
+                .thenReturn(htmlResponse);
 
-        // Simulate dataFetcher returning HTML content when called with the correct token
-        when(dataFetcher.fetchData(token)).thenReturn(SAMPLE_HTML);
-
-        // Act: invoke scrapeData (should use the token and fetch data successfully)
+        // Act: invoke scrapeData()
         List<CompetitorEventResultDto> results = scraper.scrapeData();
 
-        // Assert: verify token was obtained and used, and results were parsed correctly
+        // Assert: verify token was obtained and data was fetched and parsed
         verify(authService, times(1)).getAccessToken();
-        verify(dataFetcher, times(1)).fetchData(token);
+        verify(restTemplate, times(1)).exchange(eq("https://example.com/competition/results"), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class));
         assertNotNull("Result list should not be null", results);
         assertFalse("Result list should not be empty", results.isEmpty());
         assertEquals("Expected 2 event results parsed", 2, results.size());
-        // Verify the first result's fields match expected values
         CompetitorEventResultDto first = results.get(0);
         assertEquals("100m", first.getEventName());
-        assertEquals("10.5 s", first.getResult());  // should include unit as per updated parsing
+        assertEquals("10.5 s", first.getResult());
         assertEquals(1, first.getPosition());
-        // (Additional field assertions can be added as needed)
+        // Additional field assertions (firstName, lastName, etc.) can be added if needed
     }
 
     @Test
     public void testScrapeDataRetriesOnTokenExpiry() throws Exception {
-        // Arrange: Set up TokenResponse objects for first (expired) and second (refreshed) tokens
+        // Arrange: Set up TokenResponse objects for expired and refreshed tokens
         String expiredToken = "expired-token";
         String freshToken = "fresh-token";
         TokenResponse expiredResponse = new TokenResponse();
         expiredResponse.setAccessToken(expiredToken);
         TokenResponse freshResponse = new TokenResponse();
         freshResponse.setAccessToken(freshToken);
-
         when(authService.getAccessToken())
-                .thenReturn(expiredResponse)  // first call returns expired token
-                .thenReturn(freshResponse);   // second call (after refresh) returns new token
+                .thenReturn(expiredResponse)   // first call returns expired token
+                .thenReturn(freshResponse);    // second call returns fresh token
 
-        // Simulate first fetch attempt throwing an unauthorized exception, and second attempt succeeding
-        when(dataFetcher.fetchData(expiredToken))
-                .thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED));
-        when(dataFetcher.fetchData(freshToken))
-                .thenReturn(SAMPLE_HTML);
+        // Simulate first fetch throwing 401, second fetch returning HTML
+        when(restTemplate.exchange(eq("https://example.com/competition/results"), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new HttpClientErrorException(HttpStatus.UNAUTHORIZED))
+                .thenReturn(new ResponseEntity<>(SAMPLE_HTML, HttpStatus.OK));
 
-        // Act: call scrapeData(), which should handle token expiry by retrying with a fresh token
+        // Act: call scrapeData(), which should retry with a new token after 401
         List<CompetitorEventResultDto> results = scraper.scrapeData();
 
-        // Assert: authService.getAccessToken() should be called twice (initial token + refreshed token)
+        // Assert: AuthService.getAccessToken() should be called twice (initial + refresh)
         verify(authService, times(2)).getAccessToken();
-        // dataFetcher.fetchData should also be called twice (once failing, once succeeding)
-        verify(dataFetcher, times(2)).fetchData(anyString());
-        // Capture the token values used in each fetch call to ensure the refreshed token was used on retry
-        ArgumentCaptor<String> tokenCaptor = ArgumentCaptor.forClass(String.class);
-        verify(dataFetcher, times(2)).fetchData(tokenCaptor.capture());
-        assertEquals("First fetch should use expired token", expiredToken, tokenCaptor.getAllValues().get(0));
-        assertEquals("Second fetch should use refreshed token", freshToken, tokenCaptor.getAllValues().get(1));
-
-        // The final result should be successfully parsed from the second attempt's data
+        // RestTemplate.exchange should be called twice (once failing, once succeeding)
+        verify(restTemplate, times(2)).exchange(eq("https://example.com/competition/results"), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(String.class));
+        // Capture the requests to verify which token was used each time
+        ArgumentCaptor<HttpEntity> requestCaptor = ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate, times(2)).exchange(eq("https://example.com/competition/results"), eq(HttpMethod.GET),
+                requestCaptor.capture(), eq(String.class));
+        List<HttpEntity> allRequests = requestCaptor.getAllValues();
+        String firstAuthHeader = allRequests.get(0).getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        String secondAuthHeader = allRequests.get(1).getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+        assertEquals("First fetch should use expired token", "Bearer " + expiredToken, firstAuthHeader);
+        assertEquals("Second fetch should use refreshed token", "Bearer " + freshToken, secondAuthHeader);
+        // The final result list should be parsed from the second attempt's data
         assertNotNull("Result list should not be null after token refresh", results);
         assertFalse("Result list should not be empty after token refresh", results.isEmpty());
         assertEquals("Expected 2 event results after retry", 2, results.size());
-        // Verify parsed content is correct (e.g., first entry fields)
         CompetitorEventResultDto firstResult = results.get(0);
         assertEquals("100m", firstResult.getEventName());
         assertEquals("10.5 s", firstResult.getResult());
@@ -128,22 +128,20 @@ public class ScraperTests {
 
     @Test
     public void testParseHtmlParsesEventResultsCorrectly() throws Exception {
-        // Arrange: Create a Jsoup Document from the sample HTML content
+        // Arrange: create a Jsoup Document from the sample HTML content
         Document doc = Jsoup.parse(SAMPLE_HTML);
 
-        // Act: Call the parseHtml method directly (now public) to parse the HTML
+        // Act: call the parseHtml method directly with the Document
         List<CompetitorEventResultDto> results = scraper.parseHtml(doc);
 
-        // Assert: The returned list should contain the expected parsed results
+        // Assert: the returned list should contain the expected parsed results
         assertNotNull("Parsed results should not be null", results);
         assertEquals("Expected 2 results parsed from HTML", 2, results.size());
-
         CompetitorEventResultDto firstResult = results.get(0);
         assertEquals("100m", firstResult.getEventName());
-        // The result should include the unit (e.g., "s") as per the updated parsing logic
+        // The result should include the unit (e.g., "s") as per the parsing logic
         assertEquals("10.5 s", firstResult.getResult());
         assertEquals(1, firstResult.getPosition());
-
         CompetitorEventResultDto secondResult = results.get(1);
         assertEquals("200m", secondResult.getEventName());
         assertEquals("21.0 s", secondResult.getResult());

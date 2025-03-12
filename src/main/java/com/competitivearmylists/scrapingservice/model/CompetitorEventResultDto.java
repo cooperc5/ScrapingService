@@ -1,14 +1,12 @@
 package com.competitivearmylists.scrapingservice.model;
 
 import lombok.Data;
-import lombok.Getter;
-import lombok.Setter;
 
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@Getter
-@Setter
+/**
+ * DTO representing a competitor's event result.
+ */
 @Data
 public class CompetitorEventResultDto {
     private String firstName;
@@ -18,7 +16,20 @@ public class CompetitorEventResultDto {
     private String list;
     private String eventName;
     private LocalDateTime date;
+    private int position;
 
-    public CompetitorEventResultDto(String firstName, String lastName, String list, String eventName, LocalDateTime eventDate, String result) {
+    // No-args constructor for frameworks
+    public CompetitorEventResultDto() {
+    }
+
+    public CompetitorEventResultDto(String firstName, String lastName, String list,
+                                    String eventName, LocalDateTime eventDate, String result, int position) {
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.list = list;
+        this.eventName = eventName;
+        this.date = eventDate;
+        this.result = result;
+        this.position = position;
     }
 }
